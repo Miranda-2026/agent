@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#200b3b">
+  <meta name="description" content="IFC investment portfolio, quantitative analysis and client risk intelligence.">
+  <title>IFC | Investment Intelligence</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='12' fill='%23a100ff'/%3E%3Cpath d='m15 12 19 12-19 12' fill='none' stroke='white' stroke-width='5'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/ui-assets/styles.css">
+  <script type="module" src="/ui-assets/app.mjs"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to workspace</a>
+  <aside class="sidebar" aria-label="Workspace navigation">
+    <a class="brand" href="/" aria-label="IFC Investment Intelligence home">
+      <span class="brand-mark" aria-hidden="true">&gt;</span>
+      <span><strong>IFC<span class="brand-dot">.</span></strong><small>INVESTMENT INTELLIGENCE</small></span>
+    </a>
+    <div class="workspace-label"><span class="workspace-icon" data-icon="briefcase"></span><span>CFO Office<small>Investment workspace</small></span><span class="tiny-chevron" data-icon="chevrons"></span></div>
+    <button class="new-chat" data-action="new"><span data-icon="plus"></span>New conversation<span class="key-hint">↗</span></button>
+    <p class="nav-label">WORKSPACE</p>
+    <nav>
+      <button class="nav-item active" data-action="home" aria-current="page"><span data-icon="home"></span>Overview</button>
+      <button class="nav-item" data-action="dashboard"><span data-icon="dashboard"></span>Dashboard<span class="nav-end" data-icon="external"></span></button>
+      <button class="nav-item" data-action="quantitative"><span data-icon="chart"></span>Quantitative analysis</button>
+      <button class="nav-item" data-action="recommendations"><span data-icon="sparkles"></span>4 recommendations</button>
+    </nav>
+    <div class="sidebar-note"><span data-icon="shield"></span><strong>Evidence behind every decision.</strong><p>Portfolio insights and risk intelligence, in one conversation.</p><span class="note-line"></span></div>
+    <div class="sidebar-footer"><span class="workspace-avatar">IF</span><div><strong>IFC CFO Office</strong><small>Risk & investment team</small></div><span class="footer-dot" aria-hidden="true"></span></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="breadcrumb"><span>Workspace</span><span class="breadcrumb-slash">/</span><strong id="page-label">Overview</strong></div>
+      <div class="topbar-actions"><span class="workspace-tag"><span></span>Decision intelligence</span><button class="button secondary weight-button" data-action="weights"><span data-icon="sliders"></span><span>Scoring weights</span></button></div>
+    </header>
+    <main id="main" tabindex="-1">
+      <section class="welcome" id="welcome">
+        <div class="eyebrow"><span class="eyebrow-line"></span>YOUR INVESTMENT WORKSPACE</div>
+        <div class="welcome-spark" data-icon="sparkles"></div>
+        <h1>Hi, how can I <span>help you?</span></h1>
+        <p class="welcome-description">A clearer view of your portfolio. A stronger basis for your next decision.<br>Explore performance, understand risk, and find your next investment opportunity.</p>
+        <div class="entry-grid">
+          <button class="entry-card" data-action="dashboard"><span class="entry-top"><span class="entry-icon" data-icon="dashboard"></span><span class="entry-number">01</span></span><strong>Dashboard</strong><span class="entry-description">Your portfolio at a glance.<br>Explore the full picture.</span><span class="entry-bottom">Open dashboard<span data-icon="external"></span></span></button>
+          <button class="entry-card" data-action="quantitative"><span class="entry-top"><span class="entry-icon" data-icon="chart"></span><span class="entry-number">02</span></span><strong>Quantitative analysis</strong><span class="entry-description">Go deeper into exposure,<br>performance, and risk.</span><span class="entry-bottom">Explore the numbers<span data-icon="arrow-right"></span></span></button>
+          <button class="entry-card featured" data-action="recommendations"><span class="entry-top"><span class="entry-icon" data-icon="sparkles"></span><span class="entry-number">03</span></span><strong>4 recommendations</strong><span class="entry-description">Two relationships to continue.<br>Two exposures to review.</span><span class="entry-bottom">Find your next move<span data-icon="arrow-right"></span></span></button>
+        </div>
+        <div class="suggestions"><p class="section-kicker">OR, START WITH A QUESTION</p><div class="suggestion-list"><button data-prompt="Which clients have the largest Past Due exposure?">Where is our risk concentrated?<span data-icon="arrow-up-right"></span></button><button data-prompt="Compare Active Disbursed Amount and estimated undisbursed commitments across the portfolio.">How much capital is undisbursed?<span data-icon="arrow-up-right"></span></button></div></div>
+      </section>
+      <section id="analysis-intro" class="analysis-intro" hidden>
+        <div class="eyebrow"><span class="eyebrow-line"></span>UNDERSTAND THE NUMBERS</div><h1>Quantitative <span>analysis.</span></h1><p>Ask your agent about exposure, client performance, and the factors behind each score.</p>
+        <div class="analysis-prompts"><button data-prompt="Summarize the current Active portfolio exposure, project performance, and key risk concentrations using verified SQL results."><span data-icon="chart"></span>Summarize active exposure<span data-icon="arrow-right"></span></button><button data-prompt="Show the clients with the largest Past Due and Watchlist exposures. Verify comparative claims against the complete Active portfolio."><span data-icon="shield"></span>Explore portfolio risk<span data-icon="arrow-right"></span></button><button data-action="weights"><span data-icon="sliders"></span>Adjust the four scoring weights<span data-icon="arrow-right"></span></button></div>
+      </section>
+      <section id="conversation" class="conversation" aria-label="Conversation" hidden></section>
+      <div id="activity" class="activity" role="status" aria-live="polite" hidden><span class="agent-avatar" data-icon="sparkles"></span><div><strong>Your agent is working</strong><span id="activity-text">Preparing your analysis. This may take a few minutes.</span></div><span class="thinking-dots"><i></i><i></i><i></i></span></div>
+      <div id="notice" class="notice" role="alert" hidden></div>
+    </main>
+    <footer class="composer-wrap">
+      <div class="composer-context"><span id="mode-label">Ask your investment intelligence agent</span><button class="text-button" data-action="weights" id="weights-summary">Equal weights · 25% each</button></div>
+      <form id="chat-form" class="composer"><label class="sr-only" for="chat-input">Message your agent</label><textarea id="chat-input" rows="1" maxlength="20000" placeholder="Ask about your portfolio, clients, or risk…"></textarea><button type="submit" id="send-button" class="send-button" aria-label="Send message"><span data-icon="arrow-up"></span></button><button type="button" id="stop-button" class="send-button stop-button" aria-label="Stop waiting for response" hidden><span class="stop-square"></span></button></form>
+      <p class="composer-footnote"><span data-icon="shield"></span>AI-assisted insights. Verify the evidence. All investment decisions require human approval.</p>
+    </footer>
+  </div>
+  <dialog id="weights-dialog" aria-labelledby="weights-title">
+    <form id="weights-form"><div class="dialog-heading"><span class="entry-icon" data-icon="sliders"></span><button type="button" class="icon-button" data-action="close-weights" aria-label="Close scoring weights"><span data-icon="close"></span></button></div><p class="section-kicker">MAKE THE ANALYSIS YOURS</p><h2 id="weights-title">Scoring weights</h2><p class="dialog-description">Set the importance of each factor. Your agent will apply these weights to its next analysis and recommendations.</p><div id="weight-inputs"></div><div class="weight-total"><span>Total</span><strong id="weight-total">100%</strong></div><p class="weight-hint" id="weight-hint">Weights are normalized to 100% when applied.</p><p class="form-error" id="weight-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" class="button secondary" data-action="reset-weights">Reset to equal</button><button type="submit" class="button primary">Apply weights</button></div></form>
+  </dialog>
+  <noscript><p class="notice">Please enable JavaScript to use the investment workspace.</p></noscript>
+</body>
+</html>

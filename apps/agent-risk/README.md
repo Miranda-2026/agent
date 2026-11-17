@@ -1,5 +1,11 @@
 # Responses API Agent
 
+This checkout now uses a bundled purple IFC workspace instead of the downloaded
+default chat frontend. See [UI_SETUP.md](UI_SETUP.md) for the UI files, agent
+response format, dashboard configuration, preview, and deployment integration.
+`uv run start-app` serves both UI and API on port 8000; Node/npm is not needed for
+normal startup. The agent implementation and resource permissions are unchanged.
+
 This template defines a conversational agent app. The app comes with a built-in chat UI, but also exposes an API endpoint for invoking the agent so that you can serve your UI elsewhere (e.g. on your website or in a mobile app).
 
 The agent in this template implements the [OpenAI Responses API](https://platform.openai.com/docs/api-reference/responses) interface. It ships with a sample `get_current_time` tool. The agent code includes commented-out examples showing how to connect to [Databricks MCP servers](https://docs.databricks.com/aws/en/generative-ai/agent-framework/agent-tool) (including the built-in code interpreter, Vector Search, Genie, and UC functions). You can customize agent code and test it via the API or UI.
