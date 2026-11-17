@@ -3,6 +3,10 @@
 The UI calls the existing Genie Space supplied by the user:
 `01f1ddf25d881906b7234f566362469b`.
 
+News/report accordions and the New conversation update are covered in
+[CONTEXT_SETUP.md](CONTEXT_SETUP.md), including the three source tables and
+the required Genie Data / App resource setup.
+
 The reference analyst prompt has not been copied into this app. The app does
 not create another analyst, call a separate foundation model, or rewrite
 Genie's answers. The earlier GPT OSS model configuration has been removed.

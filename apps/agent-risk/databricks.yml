@@ -43,6 +43,22 @@ resources:
             space_id: '${var.genie_space_id}'
             permission: 'CAN_RUN'
 
+        - name: 'external-news'
+          uc_securable:
+            securable_full_name: 'workspace.ifc_case_comp.external_news'
+            securable_type: 'TABLE'
+            permission: 'SELECT'
+        - name: 'industry-reports'
+          uc_securable:
+            securable_full_name: 'workspace.ifc_case_comp.industry_reports'
+            securable_type: 'TABLE'
+            permission: 'SELECT'
+        - name: 'regional-risk-reports'
+          uc_securable:
+            securable_full_name: 'workspace.ifc_case_comp.regional_risk_reports'
+            securable_type: 'TABLE'
+            permission: 'SELECT'
+
         # Confirmed trace table from the supplied agent-risk error log.
         # For a From Git deployment, add this resource in App Settings instead.
         - name: 'trace-spans'

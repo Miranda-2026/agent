@@ -7,7 +7,7 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agent_server.ui import DEFAULT_DASHBOARD_URL, register_ui
+from agent_server.ui import DEFAULT_DASHBOARD_URL, DEFAULT_CONTEXT_TABLES, register_ui
 
 
 class WorkspaceRoutesTest(unittest.TestCase):
@@ -25,9 +25,10 @@ class WorkspaceRoutesTest(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Hi, how can I", response.text)
-        for path in ["styles.css", "app.mjs", "core.mjs"]:
+        for path in ["styles.css", "app.mjs", "core.mjs", "context.mjs"]:
             asset = self.client.get("/ui-assets/" + path)
             self.assertEqual(asset.status_code, 200)
+            self.assertEqual(asset.headers["cache-control"], "no-cache")
             if path.endswith(".mjs"):
                 self.assertIn("javascript", asset.headers["content-type"])
 
@@ -37,7 +38,7 @@ class WorkspaceRoutesTest(unittest.TestCase):
 
     def test_dashboard_configuration_exposes_no_credentials(self):
         with patch.dict(os.environ, {"DASHBOARD_URL": DEFAULT_DASHBOARD_URL, "DATABRICKS_TOKEN": "test-only-secret"}):
-            self.assertEqual(self.client.get("/ui-config").json(), {"dashboard_url": DEFAULT_DASHBOARD_URL})
+            self.assertEqual(self.client.get("/ui-config").json(), {"dashboard_url": DEFAULT_DASHBOARD_URL, "context_tables": list(DEFAULT_CONTEXT_TABLES)})
 
     def test_unsafe_dashboard_and_static_traversal_are_rejected(self):
         with patch.dict(os.environ, {"DASHBOARD_URL": "javascript:alert(1)"}):

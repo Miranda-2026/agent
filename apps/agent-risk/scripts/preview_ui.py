@@ -21,13 +21,18 @@ class PreviewHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlsplit(self.path).path
         if path == "/ui-config":
-            self.respond(json.dumps({"dashboard_url": DASHBOARD}).encode(), "application/json")
+            self.respond(json.dumps({"dashboard_url": DASHBOARD, "context_tables": [
+                "workspace.ifc_case_comp.external_news",
+                "workspace.ifc_case_comp.industry_reports",
+                "workspace.ifc_case_comp.regional_risk_reports",
+            ]}).encode(), "application/json")
             return
         routes = {
             "/": ("index.html", "text/html; charset=utf-8"),
             "/ui-assets/styles.css": ("styles.css", "text/css; charset=utf-8"),
             "/ui-assets/app.mjs": ("app.mjs", "text/javascript; charset=utf-8"),
             "/ui-assets/core.mjs": ("core.mjs", "text/javascript; charset=utf-8"),
+            "/ui-assets/context.mjs": ("context.mjs", "text/javascript; charset=utf-8"),
         }
         if path not in routes:
             self.send_error(404)

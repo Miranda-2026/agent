@@ -7,8 +7,8 @@
   <meta name="description" content="IFC investment portfolio, quantitative analysis and client risk intelligence.">
   <title>IFC | Investment Intelligence</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='12' fill='%23a100ff'/%3E%3Cpath d='m15 12 19 12-19 12' fill='none' stroke='white' stroke-width='5'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/ui-assets/styles.css">
-  <script type="module" src="/ui-assets/app.mjs"></script>
+  <link rel="stylesheet" href="/ui-assets/styles.css?v=2">
+  <script type="module" src="/ui-assets/app.mjs?v=2"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to workspace</a>
@@ -18,7 +18,7 @@
       <span><strong>IFC<span class="brand-dot">.</span></strong><small>INVESTMENT INTELLIGENCE</small></span>
     </a>
     <div class="workspace-label"><span class="workspace-icon" data-icon="briefcase"></span><span>CFO Office<small>Investment workspace</small></span><span class="tiny-chevron" data-icon="chevrons"></span></div>
-    <button class="new-chat" data-action="new"><span data-icon="plus"></span>New conversation<span class="key-hint">↗</span></button>
+    <a id="new-conversation" class="new-chat" href="/" data-action="new"><span data-icon="plus"></span>New conversation<span class="key-hint">↗</span></a>
     <p class="nav-label">WORKSPACE</p>
     <nav>
       <button class="nav-item active" data-action="home" aria-current="page"><span data-icon="home"></span>Overview</button>

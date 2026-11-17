@@ -1,4 +1,5 @@
 import {FACTORS, DEFAULT_WEIGHTS, escapeHTML as esc, safeURL, number, formatNumber, money, percent, normalizeWeights, weightLabel, textValue, statusOf, extractResponse, reportWarnings, buildAgentRequest, renderMarkdown, renderGenieQueries, requestErrorMessage} from './core.mjs';
+import {buildContextQuestion, renderContextResult} from './context.mjs';
 
 const ICONS = {
   home:'<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/>',
@@ -19,11 +20,53 @@ const ICONS = {
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ICONS.sparkles}</svg>`;
 document.querySelectorAll('[data-icon]').forEach(el => {el.innerHTML = icon(el.dataset.icon);});
 const $ = id => document.getElementById(id);
-const state = {mode:'home', history:[], weights:{...DEFAULT_WEIGHTS}, sessionId:crypto.randomUUID(), busy:false, controller:null, requestId:0, dashboard:null, lastRequest:null};
+const state = {mode:'home', history:[], weights:{...DEFAULT_WEIGHTS}, sessionId:crypto.randomUUID(), busy:false, controller:null, requestId:0, dashboard:null, lastRequest:null, contexts:new Map(), contextTables:[], configReady:null};
 const factorDisplay = weights => FACTORS.map(([key, label]) => `<span>${esc(label)} ${formatNumber(weights[key], 1)}%</span>`).join('');
 const detailList = entries => `<dl class="detail-list">${entries.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(textValue(value))}</dd></div>`).join('')}</dl>`;
 const section = (title, html) => `<section class="details-section"><h4>${esc(title)}</h4>${html}</section>`;
 const paragraph = value => `<p>${esc(textValue(value))}</p>`;
+const contextPlaceholder = () => '<div data-context-body><p class="muted-note">Open More details to find related news, industry reports and regional risk reports.</p></div>';
+
+function registerContext(context) {
+  const key = `context-${crypto.randomUUID()}`;
+  state.contexts.set(key, {context, sessionId:state.sessionId, loading:false, html:null, controller:null});
+  return key;
+}
+function cardContext(card) {
+  return {client_id:card.client_id, client_name:card.client_name, country:card.qualitative_notes?.country, region:card.qualitative_notes?.region, industry:card.industry || card.qualitative_notes?.industry};
+}
+async function loadContext(detail, force = false) {
+  const key = detail.dataset.contextKey, entry = state.contexts.get(key);
+  const target = detail.querySelector('[data-context-body]');
+  if (!entry || !target || entry.loading || (!force && entry.html !== null)) return;
+  entry.loading = true;
+  const controller = new AbortController(); entry.controller = controller;
+  const active = () => state.contexts.get(key) === entry && state.sessionId === entry.sessionId && !controller.signal.aborted;
+  target.innerHTML = '<p class="context-loading" role="status">Finding related news & reports with your agent…</p>';
+  const timeout = setTimeout(() => controller.abort(), 300000);
+  try {
+    await state.configReady;
+    if (!active()) return;
+    const question = buildContextQuestion(entry.context, state.contextTables);
+    // A separate conversation in the same Genie keeps this supporting research
+    // from changing the main analysis conversation or its displayed rankings.
+    const request = buildAgentRequest(question, 'more_details', state.weights, [], `details-${crypto.randomUUID()}`);
+    const response = await fetch('/invocations', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json', 'Accept':'application/json'}, body:JSON.stringify(request), signal:controller.signal});
+    let payload = null;
+    try {payload = await response.json();} catch { /* Handle non-JSON proxy failures below. */ }
+    if (!active()) return;
+    if (!response.ok) throw new Error(requestErrorMessage(response.status, payload));
+    const result = extractResponse(payload);
+    entry.html = renderContextResult(result);
+    target.innerHTML = entry.html;
+  } catch (error) {
+    if (state.contexts.get(key) === entry && state.sessionId === entry.sessionId) {
+      target.innerHTML = `<p class="muted-note">${esc(error.name === 'AbortError' ? 'Supporting research timed out. You can try again.' : error.message)}</p><button type="button" class="button secondary" data-action="context-retry">Try again</button>`;
+    }
+  } finally {
+    clearTimeout(timeout); entry.loading = false; entry.controller = null;
+  }
+}
 
 function renderNews(news, limitations) {
   if (!Array.isArray(news) || !news.length) return `<p class="muted-note">${esc(limitations || 'No verified news articles were returned by the agent. Live news may be unavailable.')}</p>`;
@@ -36,7 +79,7 @@ function renderNews(news, limitations) {
   }).join('')}</div>`;
 }
 
-function renderCard(card, index) {
+function renderCard(card, index, contextKey) {
   const type = statusOf(card), metrics = card.quantitative_metrics || {}, performance = card.project_performance || {}, notes = card.qualitative_notes || {}, audit = card.audit || {};
   const label = type === 'continue' ? 'Continue' : type === 'review' ? 'Review / Reduce' : 'Status unavailable';
   const count = value => formatNumber(value, 0);
@@ -57,9 +100,9 @@ function renderCard(card, index) {
     ...(type === 'review' ? [['Estimated ECL (case assumption)', money(metrics.estimated_ecl_musd)]] : []),
   ];
   const flags = Array.isArray(card.data_quality_flags) ? card.data_quality_flags : card.data_quality_flags ? [card.data_quality_flags] : [];
-  return `<article class="recommendation-card"><div class="client-card-main"><header class="client-header"><div class="client-heading"><span class="client-rank">${index + 1}</span><div><h3>${esc(card.client_name || 'Client name unavailable')}</h3><p class="client-meta">${esc(card.client_id || 'ID unavailable')} · ${esc(textValue(card.industry || notes.industry || card.product_mix))}</p></div></div><div><span class="status-badge ${type}"><span class="badge-dot"></span>${label}</span><div class="score-label">${type === 'continue' ? 'Continue score' : type === 'review' ? 'Review priority' : 'Score'} <strong>${formatNumber(card.final_score)}</strong></div></div></header><div class="metric-grid">${metric(performanceLabel, performanceValue, type === 'continue' ? 'Performing / Active projects' : '')}${metric('Weighted internal risk', risk)}${metric('Active disbursed amount', esc(money(metrics.active_disbursed_musd)))}${metric('Est. undisbursed', esc(money(metrics.estimated_undisbursed_musd)))}</div><div class="rationale"><strong>${type === 'review' ? 'Review rationale' : 'Investment rationale'}: </strong>${esc(textValue(card.quantitative_rationale))}</div></div><details class="client-details"><summary><span>More details</span>${icon('chevron')}</summary><div class="details-content">${section('Quantitative assessment', detailList([
+  return `<article class="recommendation-card"><div class="client-card-main"><header class="client-header"><div class="client-heading"><span class="client-rank">${index + 1}</span><div><h3>${esc(card.client_name || 'Client name unavailable')}</h3><p class="client-meta">${esc(card.client_id || 'ID unavailable')} · ${esc(textValue(card.industry || notes.industry || card.product_mix))}</p></div></div><div><span class="status-badge ${type}"><span class="badge-dot"></span>${label}</span><div class="score-label">${type === 'continue' ? 'Continue score' : type === 'review' ? 'Review priority' : 'Score'} <strong>${formatNumber(card.final_score)}</strong></div></div></header><div class="metric-grid">${metric(performanceLabel, performanceValue, type === 'continue' ? 'Performing / Active projects' : '')}${metric('Weighted internal risk', risk)}${metric('Active disbursed amount', esc(money(metrics.active_disbursed_musd)))}${metric('Est. undisbursed', esc(money(metrics.estimated_undisbursed_musd)))}</div><div class="rationale"><strong>${type === 'review' ? 'Review rationale' : 'Investment rationale'}: </strong>${esc(textValue(card.quantitative_rationale))}</div></div><details class="client-details" data-context-key="${esc(contextKey)}"><summary><span>More details</span>${icon('chevron')}</summary><div class="details-content">${section('Quantitative assessment', detailList([
     ['Active approved investment', money(metrics.approved_musd)], ['Final quantitative score', `${formatNumber(card.final_score)} / 100`], ['Environmental category breakdown', metrics.environmental_breakdown], ['Product line distribution', metrics.product_distribution || card.product_mix],
-  ]))}${section('Factor scores & contributions', factorTable)}${section('Performance & risk exposure', detailList(riskEntries) + '<p class="muted-note">Estimated undisbursed amounts are not verified contractual commitments. ECL, when available, uses the case-specific assumption of 60% of Past Due exposure.</p>')}${section('Additional notes', detailList([['Region', notes.region], ['Country', notes.country], ['Industry', notes.industry], ['Strategic collaboration', notes.strategic_collaboration]]) + (notes.research_limitations ? paragraph(notes.research_limitations) : ''))}${section('Related news', renderNews(card.news, notes.research_limitations))}${section('Evidence & methodology', detailList([['Source table', audit.source_table], ['Project filters', audit.filters], ['Project identifiers', audit.project_identifiers], ['Methodology', audit.methodology]]) + (audit.sql ? `<div class="prose"><pre><code>${esc(textValue(audit.sql))}</code></pre></div>` : '<p class="muted-note">SQL was not included in this response. Ask your agent to show its source calculations.</p>') + (audit.limitations ? paragraph(audit.limitations) : ''))}${flags.length ? `<div class="data-flags"><strong>Data quality flags</strong><br>${flags.map(flag => esc(textValue(flag))).join('<br>')}</div>` : ''}<p class="action-note">${esc(textValue(card.recommended_action))}<br>Subject to human approval.</p></div></details></article>`;
+  ]))}${section('Factor scores & contributions', factorTable)}${section('Performance & risk exposure', detailList(riskEntries) + '<p class="muted-note">Estimated undisbursed amounts are not verified contractual commitments. ECL, when available, uses the case-specific assumption of 60% of Past Due exposure.</p>')}${section('Additional notes', detailList([['Region', notes.region], ['Country', notes.country], ['Industry', notes.industry], ['Strategic collaboration', notes.strategic_collaboration]]) + (notes.research_limitations ? paragraph(notes.research_limitations) : ''))}${section('Related news & reports', (card.news?.length ? renderNews(card.news, notes.research_limitations) : '') + contextPlaceholder())}${section('Evidence & methodology', detailList([['Source table', audit.source_table], ['Project filters', audit.filters], ['Project identifiers', audit.project_identifiers], ['Methodology', audit.methodology]]) + (audit.sql ? `<div class="prose"><pre><code>${esc(textValue(audit.sql))}</code></pre></div>` : '<p class="muted-note">SQL was not included in this response. Ask your agent to show its source calculations.</p>') + (audit.limitations ? paragraph(audit.limitations) : ''))}${flags.length ? `<div class="data-flags"><strong>Data quality flags</strong><br>${flags.map(flag => esc(textValue(flag))).join('<br>')}</div>` : ''}<p class="action-note">${esc(textValue(card.recommended_action))}<br>Subject to human approval.</p></div></details></article>`;
 }
 
 function showNotice(message, retry = false) {
@@ -128,9 +171,13 @@ async function ask(question, mode = state.mode, retry = false, structured = mode
     const heading = `<div class="turn-heading"><span class="agent-avatar">${icon('sparkles')}</span>IFC Intelligence<small>Agent response</small></div>`;
     if (result.cards !== null) {
       const warnings = reportWarnings(result.cards, result.report, weights);
-      turn.innerHTML = `${heading}<div class="report-intro"><h2>Your client recommendations</h2><p>${esc(result.report.summary || 'Quantitative assessment with supporting risk context.')}</p><div class="report-weights">${factorDisplay(weights)}</div><p class="muted-note">Requested weights for this run. Agent-returned weights appear inside each card.</p></div>${warnings.length ? `<div class="notice">${warnings.map(esc).join('<br>')}</div>` : ''}<div class="card-stack">${result.cards.map(renderCard).join('')}</div>`;
+      turn.innerHTML = `${heading}<div class="report-intro"><h2>Your client recommendations</h2><p>${esc(result.report.summary || 'Quantitative assessment with supporting risk context.')}</p><div class="report-weights">${factorDisplay(weights)}</div><p class="muted-note">Requested weights for this run. Agent-returned weights appear inside each card.</p></div>${warnings.length ? `<div class="notice">${warnings.map(esc).join('<br>')}</div>` : ''}<div class="card-stack">${result.cards.map((card, index) => renderCard(card, index, registerContext(cardContext(card)))).join('')}</div>`;
     } else {
       turn.innerHTML = `${heading}${structured ? '<p class="muted-note">Your agent returned a text response. The original answer is shown below.</p>' : ''}<div class="prose">${renderMarkdown(result.text)}</div>`;
+    }
+    if (result.cards === null) {
+      const key = registerContext({question:question.slice(0, 2000), analysis_excerpt:result.text.slice(0, 12000)});
+      turn.innerHTML += `<details class="client-details context-details" data-context-key="${esc(key)}"><summary><span>More details &middot; Related news & reports</span>${icon('chevron')}</summary><div class="details-content">${contextPlaceholder()}</div></details>`;
     }
     turn.innerHTML += renderGenieQueries(result.queries);
     $('conversation').append(turn);
@@ -146,12 +193,17 @@ async function ask(question, mode = state.mode, retry = false, structured = mode
 }
 
 function resetConversation() {
-  state.controller?.abort(); state.requestId++; setBusy(false);
+  state.requestId++; state.controller?.abort(); state.controller = null;
+  state.contexts.forEach(entry => entry.controller?.abort()); state.contexts.clear();
+  setBusy(false);
   state.history = []; state.lastRequest = null; state.sessionId = crypto.randomUUID();
+  state.weights = {...DEFAULT_WEIGHTS}; $('weights-summary').textContent = weightLabel(state.weights);
   $('conversation').replaceChildren(); $('conversation').hidden = true;
   $('welcome').hidden = false; $('analysis-intro').hidden = true;
   $('chat-input').value = ''; $('chat-input').style.height = '';
   updateMode('home'); clearNotice(); window.scrollTo({top:0});
+  showNotice('New conversation started. Ask a question below.');
+  $('chat-input').focus({preventScroll:true});
 }
 function weightValues() { return Object.fromEntries(FACTORS.map(([key]) => [key, $(`weight-${key}`).value])); }
 function updateWeightTotal() {
@@ -166,12 +218,23 @@ function openDashboard() {
   if (!state.dashboard) {showNotice('The dashboard link is unavailable. Reload the page or check DASHBOARD_URL in the app configuration.'); return;}
   window.open(state.dashboard, '_blank', 'noopener,noreferrer');
 }
+// Native links remain usable if JavaScript fails to load. A direct listener
+// also keeps reset independent from delegated action handling and API requests.
+document.querySelectorAll('[data-action="new"]').forEach(link => link.addEventListener('click', event => {
+  event.preventDefault(); event.stopPropagation(); resetConversation();
+}));
+document.addEventListener('toggle', event => {
+  const detail = event.target;
+  if (detail?.matches?.('details[data-context-key]') && detail.open) void loadContext(detail);
+}, true);
 document.addEventListener('click', event => {
-  const prompt = event.target.closest('[data-prompt]');
+  const target = event.target?.nodeType === 3 ? event.target.parentElement : event.target;
+  const prompt = target?.closest?.('[data-prompt]');
   if (prompt) { void ask(prompt.dataset.prompt, 'quantitative'); return; }
-  const button = event.target.closest('[data-action]'); if (!button) return;
+  const button = target?.closest?.('[data-action]'); if (!button) return;
   switch (button.dataset.action) {
-    case 'new': resetConversation(); break;
+    case 'new': event.preventDefault(); resetConversation(); break;
+    case 'context-retry': void loadContext(button.closest('details[data-context-key]'), true); break;
     case 'home':
       if (state.history.length || state.busy) {updateMode('home'); $('welcome').hidden = false; $('analysis-intro').hidden = true; window.scrollTo({top:0});}
       else resetConversation(); break;
@@ -212,8 +275,9 @@ $('weights-form').addEventListener('submit', event => {
   } catch (error) { $('weight-error').textContent = error.message; $('weight-error').hidden = false; }
 });
 $('weights-dialog').addEventListener('click', event => {if (event.target === $('weights-dialog')) {const rect = event.target.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) event.target.close();}});
-try {
+state.configReady = (async () => { try {
   const response = await fetch('/ui-config', {credentials:'same-origin'});
   if (!response.ok) throw new Error('Unable to load workspace configuration.');
   const config = await response.json(); state.dashboard = safeURL(config.dashboard_url);
-} catch { showNotice('Workspace configuration could not be loaded. Agent chat is available; reload to restore the dashboard link.'); }
+  state.contextTables = Array.isArray(config.context_tables) ? config.context_tables : [];
+} catch { showNotice('Workspace configuration could not be loaded. Agent chat is available; reload to restore the dashboard and supporting sources.'); } })();
