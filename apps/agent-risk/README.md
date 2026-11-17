@@ -4,7 +4,8 @@ This checkout now uses a bundled purple IFC workspace instead of the downloaded
 default chat frontend. See [UI_SETUP.md](UI_SETUP.md) for the UI files, agent
 response format, dashboard configuration, preview, and deployment integration.
 `uv run start-app` serves both UI and API on port 8000; Node/npm is not needed for
-normal startup. The agent implementation and resource permissions are unchanged.
+normal startup. Responses now come directly from the existing IFC Genie Space;
+configure its `ifc-genie` resource binding as described in UI_SETUP.md.
 
 This template defines a conversational agent app. The app comes with a built-in chat UI, but also exposes an API endpoint for invoking the agent so that you can serve your UI elsewhere (e.g. on your website or in a mobile app).
 

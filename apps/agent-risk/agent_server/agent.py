@@ -1,131 +1,78 @@
+﻿"""Expose the existing IFC Genie Space through the app's ResponsesAgent API.
+
+There is no second LLM, copied analyst prompt, or model-generated rewrite.
+"""
+
 import logging
-from contextlib import AsyncExitStack
-from datetime import datetime
+import os
 from typing import AsyncGenerator
+from uuid import uuid4
 
 import mlflow
-from agents import Agent, Runner, function_tool, set_default_openai_api, set_default_openai_client
-from agents.tracing import set_trace_processors
 from databricks.sdk import WorkspaceClient
-from databricks_openai import AsyncDatabricksOpenAI
-from databricks_openai.agents import McpServer
-from mlflow.genai.agent_server import invoke, stream
-from mlflow.types.responses import (
-    ResponsesAgentRequest,
-    ResponsesAgentResponse,
-    ResponsesAgentStreamEvent,
-)
+from mlflow.genai.agent_server import get_request_headers, invoke, stream
+from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse, ResponsesAgentStreamEvent
 
-from agent_server.history import normalize_history_items
-from agent_server.model_config import get_model_endpoint
-from agent_server.utils import (
-    build_mcp_url,
-    get_session_id,
-    get_user_workspace_client,
-    process_agent_stream_events,
+from agent_server.genie_client import (
+    DEFAULT_GENIE_SPACE_ID,
+    ConversationRegistry,
+    DirectGenieClient,
+    GenieFailure,
+    latest_question,
+    safe_failure,
 )
 
 logger = logging.getLogger(__name__)
-
-# Databricks GPT OSS supports Chat Completions. The app's /invocations
-# interface remains ResponsesAgent-compatible for the frontend.
-set_default_openai_client(AsyncDatabricksOpenAI())
-set_default_openai_api("chat_completions")
-set_trace_processors([])  # only use mlflow for trace processing
-mlflow.openai.autolog()
-logging.getLogger("mlflow.utils.autologging_utils").setLevel(logging.ERROR)
+conversations = ConversationRegistry()
 
 
-@function_tool
-def get_current_time() -> str:
-    """Get the current date and time."""
-    return datetime.now().isoformat()
-
-
-async def init_mcp_server(workspace_client: WorkspaceClient):
-    return McpServer(
-        url=build_mcp_url("/api/2.0/mcp/functions/system/ai", workspace_client=workspace_client),
-        name="system.ai UC function MCP server",
-        workspace_client=workspace_client,
-    )
-
-
-async def connect_healthy_mcp_servers(
-    stack: AsyncExitStack, servers: list[McpServer]
-) -> tuple[list[McpServer], list[str]]:
-    """Connect each MCP server and verify it can actually list its tools.
-
-    The Agents SDK lists each server's tools lazily inside ``Runner.run``, so a server that
-    connects but fails at list time (e.g. an unauthorized Genie space) would otherwise crash
-    the whole request — including unrelated turns. We list tools here, per server: healthy
-    servers are kept; any that fails to connect OR to list is dropped and its name returned,
-    so the agent runs with whatever is available instead of erroring out.
-
-    Returns (healthy_servers, unavailable_names).
-    """
-    healthy: list[McpServer] = []
-    unavailable: list[str] = []
-    for server in servers:
-        name = getattr(server, "name", "MCP server")
-        try:
-            connected = await stack.enter_async_context(server)
-            await connected.list_tools()  # forces the connectivity + authorization check now
-            healthy.append(connected)
-        except Exception:
-            logger.warning("MCP server %r unavailable; continuing without it.", name, exc_info=True)
-            unavailable.append(name)
-    return healthy, unavailable
-
-
-def create_agent(mcp_servers: list[McpServer] | None = None) -> Agent:
-    return Agent(
-        name="Agent",
-        instructions="You are a helpful assistant.",
-        model=get_model_endpoint(),
-        tools=[get_current_time],
-        mcp_servers=mcp_servers or [],
-    )
+async def call_existing_agent(request):
+    settings = request.custom_inputs or {}
+    session_id = settings.get("session_id") or str(uuid4())
+    if not isinstance(session_id, str) or len(session_id) > 128:
+        raise GenieFailure("GENIE_INVALID_SESSION: Start a new conversation.")
+    space_id = os.getenv("IFC_GENIE_SPACE_ID", "").strip() or DEFAULT_GENIE_SPACE_ID
+    headers = {key.lower(): value for key, value in (get_request_headers() or {}).items()}
+    owner = headers.get("x-forwarded-user") or headers.get("x-forwarded-email") or "local"
+    session = conversations.get(owner, space_id, session_id)
+    if session.conversation_id is None and sum(item.role == "user" for item in request.input) > 1:
+        raise GenieFailure("GENIE_SESSION_EXPIRED: Start a new conversation to continue in Genie.")
+    try:
+        # SDK authentication uses the existing Databricks app service identity.
+        client = WorkspaceClient()
+        result = await DirectGenieClient(client, space_id).ask(latest_question(request.input), session)
+    except Exception as error:
+        issue = safe_failure(error)
+        logger.warning("Direct Genie request failed: %s; exception_type=%s", issue, type(error).__name__)
+        raise issue from None
+    message = {
+        "id": "msg_" + uuid4().hex,
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": result["text"] or "Genie returned query results. See the attached table."}],
+    }
+    return message, {
+        "genie": {"space_id": space_id, "conversation_id": result["conversation_id"], "message_id": result["message_id"]},
+        "genie_queries": result["queries"],
+    }
 
 
 @invoke()
 async def invoke_handler(request: ResponsesAgentRequest) -> ResponsesAgentResponse:
-    if session_id := get_session_id(request):
+    if session_id := (request.custom_inputs or {}).get("session_id"):
         mlflow.update_current_trace(metadata={"mlflow.trace.session": session_id})
-    # The agent runs inside an AsyncExitStack so any MCP servers stay open for the whole
-    # request. To give the agent MCP tools, connect them with connect_healthy_mcp_servers,
-    # which health-checks each server so one unavailable server can't crash the request
-    # (the Agents SDK lists each server's tools lazily inside Runner.run):
-    #   servers, unavailable = await connect_healthy_mcp_servers(
-    #       stack, [await init_mcp_server(WorkspaceClient())])
-    #   agent = create_agent(mcp_servers=servers)
-    # WorkspaceClient() uses service principal credentials; use get_user_workspace_client()
-    # for on-behalf-of user authentication.
-    async with AsyncExitStack() as stack:
-        agent = create_agent()
-        messages = normalize_history_items([i.model_dump() for i in request.input])
-        result = await Runner.run(agent, messages)
-        return ResponsesAgentResponse(output=[item.to_input_item() for item in result.new_items])
+    message, metadata = await call_existing_agent(request)
+    return ResponsesAgentResponse(output=[message], custom_outputs=metadata)
 
 
 @stream()
-async def stream_handler(
-    request: ResponsesAgentRequest,
-) -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
-    if session_id := get_session_id(request):
-        mlflow.update_current_trace(metadata={"mlflow.trace.session": session_id})
-    # The agent runs inside an AsyncExitStack so any MCP servers stay open for the whole
-    # request. To give the agent MCP tools, connect them with connect_healthy_mcp_servers,
-    # which health-checks each server so one unavailable server can't crash the request
-    # (the Agents SDK lists each server's tools lazily inside Runner.run):
-    #   servers, unavailable = await connect_healthy_mcp_servers(
-    #       stack, [await init_mcp_server(WorkspaceClient())])
-    #   agent = create_agent(mcp_servers=servers)
-    # WorkspaceClient() uses service principal credentials; use get_user_workspace_client()
-    # for on-behalf-of user authentication.
-    async with AsyncExitStack() as stack:
-        agent = create_agent()
-        messages = normalize_history_items([i.model_dump() for i in request.input])
-        result = Runner.run_streamed(agent, input=messages)
-
-        async for event in process_agent_stream_events(result.stream_events()):
-            yield event
+async def stream_handler(request: ResponsesAgentRequest) -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
+    # Genie is polled to completion; this endpoint emits its final response.
+    message, metadata = await call_existing_agent(request)
+    yield ResponsesAgentStreamEvent(type="response.output_item.done", item=message)
+    for query in metadata["genie_queries"]:
+        sql = query.get("sql") or "SQL unavailable"
+        yield ResponsesAgentStreamEvent(type="response.output_item.done", item={
+            "id": "msg_" + uuid4().hex, "type": "message", "role": "assistant",
+            "content": [{"type": "output_text", "text": "Genie query:\n```sql\n" + sql + "\n```"}],
+        })

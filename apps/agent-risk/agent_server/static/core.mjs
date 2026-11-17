@@ -30,6 +30,14 @@ export function requestErrorMessage(status, payload) {
   // MLflow wraps upstream errors in HTTP 500 with a string `detail` field.
   // Match diagnostic codes, but never display raw error bodies or credentials.
   const detail = typeof payload?.detail === 'string' ? payload.detail : JSON.stringify(payload?.detail ?? payload?.error ?? '');
+  if (detail.includes('GENIE_ACCESS_DENIED')) return "The app cannot access the existing Genie agent. In App Settings > Resources, bind your Genie Space with key 'ifc-genie' and Can run permission. Also check the app identity's underlying table and warehouse permissions.";
+  if (detail.includes('GENIE_SPACE_NOT_FOUND')) return "The configured Genie Space was not found. Check resource 'ifc-genie' and confirm that the app runs in the same Databricks workspace.";
+  if (detail.includes('GENIE_SESSION_EXPIRED') || detail.includes('GENIE_INVALID_SESSION')) return 'This Genie conversation is no longer available in the app. Start a New conversation to continue.';
+  if (detail.includes('GENIE_RATE_LIMITED') || detail.includes('GENIE_BUSY')) return 'Genie is temporarily busy or rate limited. Please wait briefly and retry.';
+  if (detail.includes('GENIE_TIMEOUT')) return 'Your existing Genie agent did not finish within four minutes. Check the Genie conversation or retry later.';
+  if (detail.includes('GENIE_EMPTY_RESPONSE')) return 'Genie returned no text or query results. Check the conversation in the Genie Space.';
+  if (detail.includes('GENIE_FAILED') || detail.includes('GENIE_CANCELLED') || detail.includes('GENIE_QUERY_RESULT_EXPIRED')) return 'The request reached Genie, but its message did not complete successfully. Check the Genie conversation status. This alone does not establish a permission or data-connection problem.';
+  if (detail.includes('GENIE_REQUEST_FAILED')) return 'The direct Genie request failed. Check the Databricks app logs and the Genie conversation.';
   if (detail.includes('ENDPOINT_NOT_FOUND')) return "The configured model endpoint was not found. Bind your existing GPT OSS 120B endpoint in Databricks App Settings > Resources with key 'llm-endpoint' and Can query permission, then redeploy.";
   if (detail.includes('PERMISSION_DENIED') && detail.includes('_otel_')) return 'The app cannot access its MLflow trace tables. Grant its service principal USE CATALOG, USE SCHEMA, SELECT and MODIFY on the experiment’s actual trace tables.';
   if (detail.includes('PERMISSION_DENIED')) return 'The app service principal cannot access a required Databricks resource. Check the model’s Can query permission and the app’s data resource permissions.';
@@ -76,7 +84,18 @@ export function extractResponse(payload) {
   const cards = structured?.cards?.filter(card => card && typeof card === 'object' && !Array.isArray(card));
   if (!structured && !text.trim()) throw new Error('The agent returned no displayable answer. Please retry.');
   return {text, cards: cards ?? null, report: structured ?? null,
+    queries: Array.isArray(payload?.custom_outputs?.genie_queries) ? payload.custom_outputs.genie_queries : [],
     historyText: text || JSON.stringify(structured)};
+}
+
+export function renderGenieQueries(queries) {
+  if (!Array.isArray(queries) || !queries.length) return '';
+  return `<section class="details-section"><h4>Query results from Genie</h4>${queries.map((query, index) => {
+    const columns = Array.isArray(query.columns) ? query.columns : [];
+    const rows = Array.isArray(query.rows) ? query.rows : [];
+    const table = query.data_available ? `<div class="table-scroll"><table><thead><tr>${columns.map(column => `<th scope="col">${escapeHTML(column)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${(Array.isArray(row) ? row : []).map(value => `<td>${escapeHTML(textValue(value))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>${rows.length === 0 ? '<p>No rows returned by Genie.</p>' : ''}` : '<p>Query results are unavailable. The SQL returned by Genie is shown below.</p>';
+    return `<details class="client-details"><summary>Genie query ${index + 1}</summary><div class="details-content prose">${query.description ? `<p>${escapeHTML(query.description)}</p>` : ''}${table}${query.truncated ? '<p class="muted-note">Partial results are shown. The full result was not loaded; no portfolio ranking is inferred from this table.</p>' : ''}<pre><code>${escapeHTML(query.sql || 'SQL unavailable')}</code></pre></div></details>`;
+  }).join('')}</section>`;
 }
 export function reportWarnings(cards, report, requestedWeights) {
   const warnings = [];
@@ -101,20 +120,14 @@ export function reportWarnings(cards, report, requestedWeights) {
   return warnings;
 }
 
-const OUTPUT_CONTRACT = `For frontend presentation, return a JSON object with keys summary, limitations (array), and cards (array of separate client objects). Use your existing analytical rules and tools, not model arithmetic or invented data. Return only eligible verified clients; if fewer than four qualify, disclose that in limitations. Order two CONTINUE cards first, then two REDUCE_REVIEW cards when available. Keep qualitative research separate from scoring. For unavailable values use null, never zero or invented placeholders. All money fields below are numeric MILLIONS of USD; percentages are 0–100, risk rating is 1–6, scores are 0–100. Each card uses these keys:
-client_id, client_name, industry, product_mix, recommendation_status (CONTINUE or REDUCE_REVIEW), score_type, final_score,
-applied_weights ({disbursed_amount, internal_risk, environmental_category, product_line}, percentages),
-factor_scores (same four keys, each {score, weighted_contribution}; use the relevant Continue or Review scores),
-quantitative_metrics ({active_disbursed_musd, approved_musd, estimated_undisbursed_musd, weighted_internal_risk, environmental_breakdown, product_distribution, past_due_exposure_musd, watchlist_exposure_musd, risk_exposure_ratio_pct, estimated_ecl_musd}),
-project_performance ({active, performing, watchlist, past_due}), quantitative_rationale,
-qualitative_notes ({region, country, industry, strategic_collaboration, research_limitations}),
-news (array of {headline, publisher, publication_date, relevance, risk_classification, explanation, url}; include only verified real sources with direct article URLs; if live search is unavailable, return [] and explain in research_limitations),
-recommended_action, data_quality_flags (array), audit ({source_table, filters, project_identifiers, methodology, sql, limitations}).
-Do not treat UI validation as SQL verification. Do not change ranking or financial methodology to fit this presentation schema.`;
-
-export function buildAgentMessage(question, mode, weights) {
-  const applied = normalizeWeights(weights);
-  return `User request: ${question}\n\nApplication context: ${mode === 'recommendations' ? 'Client recommendations' : 'Quantitative analysis / follow-up conversation'}. Current user scoring weights, in percentages: ${JSON.stringify(applied)}. Use these weights whenever scoring or recalculating rankings; do not silently use equal weights. If only weights changed, preserve the validated underlying factors for the same data snapshot and re-rank both eligible populations using the existing rules. If this is only a qualitative follow-up, do not unnecessarily recompute quantitative rankings.\n\n${mode === 'recommendations' ? OUTPUT_CONTRACT : 'Answer the user in clear Markdown. Use your configured data tools for financial calculations. Disclose unavailable data or tools. Keep existing analytical instructions and evidence requirements.'}`;
+export function buildAgentRequest(question, mode, weights, history, sessionId) {
+  // The existing agent owns its instructions, analysis, tools and output.
+  // UI controls travel as metadata, never as an injected analytical prompt.
+  return {
+    input: [...history, {role:'user', content:question}],
+    stream: false,
+    custom_inputs: {session_id:sessionId, ui_mode:mode, weights:normalizeWeights(weights)},
+  };
 }
 
 // Small, escaped Markdown renderer. Raw agent HTML is always displayed as text.

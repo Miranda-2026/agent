@@ -2,9 +2,9 @@ command: ["uv", "run", "start-app"]
 # databricks apps listen by default on port 8000
 
 env:
-  # Bind GPT OSS 120B in App > Settings > Resources with this resource key.
-  - name: DATABRICKS_MODEL_ENDPOINT
-    valueFrom: "llm-endpoint"
+  # Invoke the existing Genie Space; no separate foundation model is used.
+  - name: IFC_GENIE_SPACE_ID
+    valueFrom: "ifc-genie"
   - name: MLFLOW_TRACKING_URI
     value: "databricks"
   - name: MLFLOW_REGISTRY_URI

@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "databricks-sdk",
     "fastapi>=0.129.0",
     "uvicorn>=0.41.0",
     "databricks-openai>=0.13.0",

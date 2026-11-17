@@ -1,6 +1,6 @@
 // Run with `node tests/test_ui_core.mjs` (no npm installation required).
 import assert from 'node:assert/strict';
-import {normalizeWeights, DEFAULT_WEIGHTS, number, money, safeURL, extractResponse, reportWarnings, renderMarkdown, buildAgentMessage, requestErrorMessage} from '../agent_server/static/core.mjs';
+import {normalizeWeights, DEFAULT_WEIGHTS, number, money, safeURL, extractResponse, reportWarnings, renderMarkdown, buildAgentRequest, renderGenieQueries, requestErrorMessage} from '../agent_server/static/core.mjs';
 
 const results = [];
 function check(name, fn) {fn(); results.push(name);}
@@ -46,10 +46,18 @@ check('Agent HTML and dangerous article links cannot execute', () => {
   assert.equal(safeURL('javascript:alert(1)'), null); assert.equal(safeURL('data:text/html,hello'), null);
   assert.equal(safeURL('https://secret@example.com'), null);
 });
-check('Current weights and output schema travel to the existing agent', () => {
-  const message = buildAgentMessage('Re-rank clients', 'recommendations', {disbursed_amount:10, internal_risk:40, environmental_category:30, product_line:20});
-  assert.match(message, /"internal_risk":40/); assert.match(message, /numeric MILLIONS of USD/);
-  assert.match(message, /underlying factors/); assert.match(message, /return a JSON object/);
+check('User messages pass through unchanged; UI settings stay in metadata', () => {
+  const question = 'Why did you recommend this client?\n请解释原因。';
+  const history = [{role:'user', content:'Previous question'}, {role:'assistant', content:'Existing agent answer'}];
+  const original = structuredClone(history);
+  const request = buildAgentRequest(question, 'recommendations', {disbursed_amount:1, internal_risk:4, environmental_category:3, product_line:2}, history, 'test-session');
+  assert.equal(JSON.stringify(request.input), JSON.stringify([...original, {role:'user', content:question}]));
+  assert.equal(JSON.stringify(history), JSON.stringify(original));
+  assert.equal(request.custom_inputs.weights.internal_risk, 40);
+  assert.equal(request.custom_inputs.ui_mode, 'recommendations');
+  assert.equal(request.custom_inputs.session_id, 'test-session');
+  assert.equal(request.stream, false);
+  assert.ok(!('instructions' in request));
 });
 check('HTTP 500 exposes endpoint diagnostics without leaking the raw response', () => {
   const error = requestErrorMessage(500, {detail:"Error code: 404 - {'error_code': 'ENDPOINT_NOT_FOUND', 'private': 'test-secret'}"});
@@ -60,6 +68,19 @@ check('HTTP 500 exposes endpoint diagnostics without leaking the raw response', 
   assert.match(requestErrorMessage(429, null), /rate limited/);
   assert.match(requestErrorMessage(500, {detail:'unknown test-secret'}), /HTTP 500/);
   assert.ok(!requestErrorMessage(500, {detail:'unknown test-secret'}).includes('test-secret'));
+});
+check('Original Genie query evidence is escaped and partial results are disclosed', () => {
+  const queries = [{sql:'SELECT value FROM example', columns:['<column>'], rows:[['<script>']], data_available:true, truncated:true}];
+  const payload = {output_text:'Original Genie answer', custom_outputs:{genie_queries:queries}};
+  const response = extractResponse(payload);
+  assert.equal(response.text, 'Original Genie answer');
+  const rendered = renderGenieQueries(response.queries);
+  assert.ok(rendered.includes('&lt;script&gt;'));
+  assert.ok(!rendered.includes('<script>'));
+  assert.match(rendered, /Partial results/);
+  assert.match(rendered, /SELECT value FROM example/);
+  assert.match(requestErrorMessage(500, {detail:'GENIE_ACCESS_DENIED'}), /existing Genie agent/);
+  assert.match(requestErrorMessage(500, {detail:'GENIE_FAILED'}), /does not establish/);
 });
 console.log(`${results.length} UI core checks passed.`);
 export {results};

@@ -2,21 +2,21 @@ bundle:
   name: agent_openai_agents_sdk
 
 variables:
-  llm_endpoint:
-    description: "Existing Model Serving endpoint for the agent"
-    default: "databricks-gpt-oss-120b"
+  genie_space_id:
+    description: "The existing IFC Genie Space that owns all responses"
+    default: "01f1ddf25d881906b7234f566362469b"
 
 resources:
   apps:
     agent_openai_agents_sdk:
       name: "agent-openai-agents-sdk"
-      description: "OpenAI Agents SDK agent application"
+      description: "IFC workspace using the existing Genie Space"
       source_code_path: ./
       config:
         command: ["uv", "run", "start-app"]
         env:
-          - name: DATABRICKS_MODEL_ENDPOINT
-            value_from: "llm-endpoint"
+          - name: IFC_GENIE_SPACE_ID
+            value_from: "ifc-genie"
           - name: MLFLOW_TRACKING_URI
             value: "databricks"
           - name: MLFLOW_REGISTRY_URI
@@ -37,14 +37,11 @@ resources:
             experiment_id: ""
             permission: 'CAN_MANAGE'
 
-        # NOTE: grants the app's service principal CAN_QUERY on the LLM endpoint so
-        # the deployed app (and UI-created apps via manifest.yaml) can call the model
-        # without a manual grant. The env var above uses this same resource so
-        # the selected model and its permission cannot drift apart.
-        - name: 'llm-endpoint'
-          serving_endpoint:
-            name: '${var.llm_endpoint}'
-            permission: 'CAN_QUERY'
+        - name: 'ifc-genie'
+          genie_space:
+            name: 'IFC existing Genie Space'
+            space_id: '${var.genie_space_id}'
+            permission: 'CAN_RUN'
 
         # Confirmed trace table from the supplied agent-risk error log.
         # For a From Git deployment, add this resource in App Settings instead.

@@ -1,4 +1,4 @@
-import {FACTORS, DEFAULT_WEIGHTS, escapeHTML as esc, safeURL, number, formatNumber, money, percent, normalizeWeights, weightLabel, textValue, statusOf, extractResponse, reportWarnings, buildAgentMessage, renderMarkdown, requestErrorMessage} from './core.mjs';
+import {FACTORS, DEFAULT_WEIGHTS, escapeHTML as esc, safeURL, number, formatNumber, money, percent, normalizeWeights, weightLabel, textValue, statusOf, extractResponse, reportWarnings, buildAgentRequest, renderMarkdown, renderGenieQueries, requestErrorMessage} from './core.mjs';
 
 const ICONS = {
   home:'<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/>',
@@ -102,7 +102,8 @@ async function ask(question, mode = state.mode, retry = false, structured = mode
     $('conversation').append(user);
   }
   const weights = {...state.weights};
-  const input = [...state.history, {role:'user', content:buildAgentMessage(question, structured ? requestMode : 'chat', weights)}];
+  const request = buildAgentRequest(question, requestMode, weights, state.history, state.sessionId);
+  const input = request.input;
   state.lastRequest = {question, mode:requestMode, structured};
   const id = ++state.requestId, controller = new AbortController(); state.controller = controller;
   setBusy(true); $('activity').scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block:'end'});
@@ -111,7 +112,7 @@ async function ask(question, mode = state.mode, retry = false, structured = mode
   try {
     const response = await fetch('/invocations', {
       method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json', 'Accept':'application/json'},
-      body:JSON.stringify({input, stream:false, custom_inputs:{session_id:state.sessionId}}), signal:controller.signal,
+      body:JSON.stringify(request), signal:controller.signal,
     });
     if (id !== state.requestId) return;
     if (!response.ok) {
@@ -131,6 +132,7 @@ async function ask(question, mode = state.mode, retry = false, structured = mode
     } else {
       turn.innerHTML = `${heading}${structured ? '<p class="muted-note">Your agent returned a text response. The original answer is shown below.</p>' : ''}<div class="prose">${renderMarkdown(result.text)}</div>`;
     }
+    turn.innerHTML += renderGenieQueries(result.queries);
     $('conversation').append(turn);
     // Commit only completed turns so errors and retries do not duplicate agent history.
     state.history.push(input.at(-1), {role:'assistant', content:result.historyText}); state.lastRequest = null;
@@ -177,7 +179,7 @@ document.addEventListener('click', event => {
     case 'quantitative':
       clearNotice(); updateMode('quantitative'); $('welcome').hidden = true;
       $('analysis-intro').hidden = false; window.scrollTo({top:0}); $('chat-input').focus({preventScroll:true}); break;
-    case 'recommendations': void ask('Generate the four client recommendations: two Continue Investing clients and two Reduce / Review Exposure clients, using the current scoring weights and your existing eligibility and verification rules. Include detailed risk analysis and relevant verified news where available.', 'recommendations'); break;
+    case 'recommendations': void ask('Show me four client recommendations.', 'recommendations'); break;
     case 'weights': openWeights(); break;
     case 'close-weights': $('weights-dialog').close(); break;
     case 'reset-weights': FACTORS.forEach(([key]) => {$(`weight-${key}`).value = 25;}); updateWeightTotal(); break;
@@ -202,8 +204,11 @@ $('weights-form').addEventListener('submit', event => {
     const changed = FACTORS.some(([key]) => Math.abs(weights[key] - state.weights[key]) > .0001);
     if (state.busy) throw new Error('Wait for the current response, or stop waiting, before applying new weights.');
     state.weights = weights; $('weights-summary').textContent = weightLabel(state.weights); $('weights-dialog').close();
-    if (changed && state.mode === 'recommendations') void ask('Recalculate both eligible client rankings using the new scoring weights and regenerate the recommendations. For the same data snapshot, preserve all underlying client metrics and unweighted factor scores. Verify any ranking movement against the previous run; disclose snapshot changes.', 'recommendations');
-    else if (changed) showNotice('Scoring weights updated. They will be applied to your next agent analysis. Previous results retain the weights used for their run.');
+    if (changed) {
+      const requested = FACTORS.map(([key, label]) => `${label}: ${Number(weights[key].toFixed(6))}%`).join('; ');
+      // A visible user request from the explicit control, not a hidden prompt.
+      void ask(`${state.mode === 'recommendations' ? 'Update the four client recommendations' : 'Use these scoring weights for this conversation'}: ${requested}.`, state.mode === 'recommendations' ? 'recommendations' : 'quantitative');
+    }
   } catch (error) { $('weight-error').textContent = error.message; $('weight-error').hidden = false; }
 });
 $('weights-dialog').addEventListener('click', event => {if (event.target === $('weights-dialog')) {const rect = event.target.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) event.target.close();}});
