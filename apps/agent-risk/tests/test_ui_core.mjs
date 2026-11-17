@@ -1,6 +1,6 @@
 // Run with `node tests/test_ui_core.mjs` (no npm installation required).
 import assert from 'node:assert/strict';
-import {normalizeWeights, DEFAULT_WEIGHTS, number, money, safeURL, extractResponse, reportWarnings, renderMarkdown, buildAgentMessage} from '../agent_server/static/core.mjs';
+import {normalizeWeights, DEFAULT_WEIGHTS, number, money, safeURL, extractResponse, reportWarnings, renderMarkdown, buildAgentMessage, requestErrorMessage} from '../agent_server/static/core.mjs';
 
 const results = [];
 function check(name, fn) {fn(); results.push(name);}
@@ -50,6 +50,16 @@ check('Current weights and output schema travel to the existing agent', () => {
   const message = buildAgentMessage('Re-rank clients', 'recommendations', {disbursed_amount:10, internal_risk:40, environmental_category:30, product_line:20});
   assert.match(message, /"internal_risk":40/); assert.match(message, /numeric MILLIONS of USD/);
   assert.match(message, /underlying factors/); assert.match(message, /return a JSON object/);
+});
+check('HTTP 500 exposes endpoint diagnostics without leaking the raw response', () => {
+  const error = requestErrorMessage(500, {detail:"Error code: 404 - {'error_code': 'ENDPOINT_NOT_FOUND', 'private': 'test-secret'}"});
+  assert.match(error, /model endpoint was not found/); assert.ok(!error.includes('test-secret'));
+  assert.match(requestErrorMessage(500, {detail:'PERMISSION_DENIED on example_otel_spans'}), /trace tables/);
+  assert.match(requestErrorMessage(500, {detail:'PERMISSION_DENIED on portfolio'}), /resource/);
+  assert.match(requestErrorMessage(401, null), /session/);
+  assert.match(requestErrorMessage(429, null), /rate limited/);
+  assert.match(requestErrorMessage(500, {detail:'unknown test-secret'}), /HTTP 500/);
+  assert.ok(!requestErrorMessage(500, {detail:'unknown test-secret'}).includes('test-secret'));
 });
 console.log(`${results.length} UI core checks passed.`);
 export {results};

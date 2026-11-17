@@ -1,4 +1,4 @@
-import {FACTORS, DEFAULT_WEIGHTS, escapeHTML as esc, safeURL, number, formatNumber, money, percent, normalizeWeights, weightLabel, textValue, statusOf, extractResponse, reportWarnings, buildAgentMessage, renderMarkdown} from './core.mjs';
+import {FACTORS, DEFAULT_WEIGHTS, escapeHTML as esc, safeURL, number, formatNumber, money, percent, normalizeWeights, weightLabel, textValue, statusOf, extractResponse, reportWarnings, buildAgentMessage, renderMarkdown, requestErrorMessage} from './core.mjs';
 
 const ICONS = {
   home:'<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/>',
@@ -114,9 +114,11 @@ async function ask(question, mode = state.mode, retry = false, structured = mode
       body:JSON.stringify({input, stream:false, custom_inputs:{session_id:state.sessionId}}), signal:controller.signal,
     });
     if (id !== state.requestId) return;
-    if (!response.ok) throw new Error(response.status === 401 || response.status === 403
-      ? 'Your Databricks session or agent access needs attention. Sign in again or check the app resource permissions.'
-      : `The agent request failed (HTTP ${response.status}). Please retry or check the Databricks app logs.`);
+    if (!response.ok) {
+      let errorBody = null;
+      try {errorBody = await response.json();} catch { /* A proxy can return non-JSON errors. */ }
+      throw new Error(requestErrorMessage(response.status, errorBody));
+    }
     let payload;
     try { payload = await response.json(); } catch { throw new Error('The server did not return JSON. Your Databricks session may have expired; sign in again and retry.'); }
     if (id !== state.requestId) return;

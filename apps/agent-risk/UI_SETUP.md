@@ -3,6 +3,10 @@
 This change supplies the UI for the existing Databricks app. It does not replace
 the agent's model, tools, analytical prompt, authentication, or scoring logic.
 
+The subsequent HTTP 500 repair configures the user-selected GPT OSS 120B model
+and its resource binding; see [ERROR_FIX.md](ERROR_FIX.md). The analytical prompt
+and tools remain unchanged by that repair.
+
 ## Experience
 
 - Welcome: **Hi, how can I help you?** with Dashboard, Quantitative analysis,

@@ -17,6 +17,7 @@ from mlflow.types.responses import (
 )
 
 from agent_server.history import normalize_history_items
+from agent_server.model_config import get_model_endpoint
 from agent_server.utils import (
     build_mcp_url,
     get_session_id,
@@ -26,7 +27,8 @@ from agent_server.utils import (
 
 logger = logging.getLogger(__name__)
 
-# NOTE: this will work for all databricks models OTHER than GPT-OSS, which uses a slightly different API
+# Databricks GPT OSS supports Chat Completions. The app's /invocations
+# interface remains ResponsesAgent-compatible for the frontend.
 set_default_openai_client(AsyncDatabricksOpenAI())
 set_default_openai_api("chat_completions")
 set_trace_processors([])  # only use mlflow for trace processing
@@ -79,7 +81,7 @@ def create_agent(mcp_servers: list[McpServer] | None = None) -> Agent:
     return Agent(
         name="Agent",
         instructions="You are a helpful assistant.",
-        model="databricks-claude-sonnet-5-5",
+        model=get_model_endpoint(),
         tools=[get_current_time],
         mcp_servers=mcp_servers or [],
     )

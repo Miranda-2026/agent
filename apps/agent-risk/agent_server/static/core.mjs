@@ -25,6 +25,18 @@ export function formatNumber(value, digits = 2) {
 }
 export const money = value => number(value) === null ? 'Unavailable' : `$${formatNumber(value)}M`;
 export const percent = value => number(value) === null ? 'Unavailable' : `${formatNumber(value, 1)}%`;
+
+export function requestErrorMessage(status, payload) {
+  // MLflow wraps upstream errors in HTTP 500 with a string `detail` field.
+  // Match diagnostic codes, but never display raw error bodies or credentials.
+  const detail = typeof payload?.detail === 'string' ? payload.detail : JSON.stringify(payload?.detail ?? payload?.error ?? '');
+  if (detail.includes('ENDPOINT_NOT_FOUND')) return "The configured model endpoint was not found. Bind your existing GPT OSS 120B endpoint in Databricks App Settings > Resources with key 'llm-endpoint' and Can query permission, then redeploy.";
+  if (detail.includes('PERMISSION_DENIED') && detail.includes('_otel_')) return 'The app cannot access its MLflow trace tables. Grant its service principal USE CATALOG, USE SCHEMA, SELECT and MODIFY on the experiment’s actual trace tables.';
+  if (detail.includes('PERMISSION_DENIED')) return 'The app service principal cannot access a required Databricks resource. Check the model’s Can query permission and the app’s data resource permissions.';
+  if (status === 401 || status === 403) return 'Your Databricks session or app resource access needs attention. Sign in again or check the app resource permissions.';
+  if (status === 429) return 'The model endpoint is rate limited. Please wait briefly and retry.';
+  return `The agent request failed (HTTP ${status}). Please retry or check the Databricks app logs.`;
+}
 export function normalizeWeights(values) {
   const weights = FACTORS.map(([key]) => number(values[key]));
   if (weights.some(n => n === null || n < 0)) throw new Error('Enter a valid, nonnegative number for every factor.');

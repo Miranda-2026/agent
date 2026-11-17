@@ -1,6 +1,11 @@
 bundle:
   name: agent_openai_agents_sdk
 
+variables:
+  llm_endpoint:
+    description: "Existing Model Serving endpoint for the agent"
+    default: "databricks-gpt-oss-120b"
+
 resources:
   apps:
     agent_openai_agents_sdk:
@@ -10,6 +15,8 @@ resources:
       config:
         command: ["uv", "run", "start-app"]
         env:
+          - name: DATABRICKS_MODEL_ENDPOINT
+            value_from: "llm-endpoint"
           - name: MLFLOW_TRACKING_URI
             value: "databricks"
           - name: MLFLOW_REGISTRY_URI
@@ -32,12 +39,20 @@ resources:
 
         # NOTE: grants the app's service principal CAN_QUERY on the LLM endpoint so
         # the deployed app (and UI-created apps via manifest.yaml) can call the model
-        # without a manual grant. If you change the model in agent_server/agent.py,
-        # update the name below to match.
+        # without a manual grant. The env var above uses this same resource so
+        # the selected model and its permission cannot drift apart.
         - name: 'llm-endpoint'
           serving_endpoint:
-            name: 'databricks-claude-sonnet-5-5'
+            name: '${var.llm_endpoint}'
             permission: 'CAN_QUERY'
+
+        # Confirmed trace table from the supplied agent-risk error log.
+        # For a From Git deployment, add this resource in App Settings instead.
+        - name: 'trace-spans'
+          uc_securable:
+            securable_full_name: 'workspace.ifc_case_comp.665854304075459_otel_spans'
+            securable_type: 'TABLE'
+            permission: 'MODIFY'
 
 targets:
   dev:
